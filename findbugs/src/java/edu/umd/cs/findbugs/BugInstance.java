@@ -1398,7 +1398,7 @@ public class BugInstance implements Comparable<BugInstance>, XMLWriteable, Seria
      */
     @Nonnull
     public BugInstance addField(String className, String fieldName, String fieldSig, int accessFlags) {
-        addField(new FieldAnnotation(className, fieldName, fieldSig, accessFlags));
+        addField(new FieldAnnotation(ClassName.toDottedClassName(className), fieldName, fieldSig, accessFlags));
         return this;
     }
 
@@ -2298,13 +2298,14 @@ public class BugInstance implements Comparable<BugInstance>, XMLWriteable, Seria
                     attributeList.addAttribute("isInCloud", "false");
                 }
                 if (addMessages) {
-                    UserDesignation consesus = UserDesignation.valueOf(props.consensus);
-                    if (consesus.shouldFix()) {
-                        attributeList.addAttribute("shouldFix", "true");
-                    } else if (consesus.notAProblem()) {
-                        attributeList.addAttribute("notAProblem", "true");
+                    if (props.consensus != null) {
+                        UserDesignation consesus = UserDesignation.valueOf(props.consensus);
+                        if (consesus.shouldFix()) {
+                            attributeList.addAttribute("shouldFix", "true");
+                        } else if (consesus.notAProblem()) {
+                            attributeList.addAttribute("notAProblem", "true");
+                        }
                     }
-
                     if (props.firstSeen != null) {
                         int ageInDays = ageInDays(bugCollection, props.firstSeen.getTime());
                         attributeList.addAttribute("ageInDays", Integer.toString(ageInDays));
