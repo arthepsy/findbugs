@@ -159,6 +159,8 @@ public class OpcodeStack implements Constants2 {
 
     private boolean jumpInfoChangedByBackwardsBranch;
 
+    private boolean jumpInfoChangedByNewTarget;
+
     private Map<Integer, List<Item>> jumpEntries = new HashMap<Integer, List<Item>>();
 
     private Map<Integer, List<Item>> jumpStackEntries = new HashMap<Integer, List<Item>>();
@@ -2877,6 +2879,12 @@ public class OpcodeStack implements Constants2 {
                             String.format("For %s, mismatch on existence of backedge: %s for precomputation, %s for bytecode analysis",
                                     xMethod, xMethod.hasBackBranch(), myStack.backwardsBranch));
                 }
+                if (myStack.isJumpInfoChangedByNewTarget()) {
+                    if (DEBUG) {
+                        System.out.println("new target found, resetting iteration count");
+                    }
+                    iteration = 1;
+                }
                 if (iteration++ > 40) {
                     AnalysisContext.logError("Iterative jump info didn't converge after " + iteration + " iterations in " + xMethod
                             + ", size " + method.getCode().getLength());
@@ -2906,6 +2914,7 @@ public class OpcodeStack implements Constants2 {
         List<Item> atTarget = jumpEntries.get(Integer.valueOf(target));
         if (atTarget == null) {
             setJumpInfoChangedByBackwardBranch("new target", from, target);
+            setJumpInfoChangedByNewTarget();
             jumpEntries.put(Integer.valueOf(target), new ArrayList<Item>(lvValues));
             jumpEntryLocations.set(target);
             if (stack.size() > 0) {
@@ -2922,9 +2931,7 @@ public class OpcodeStack implements Constants2 {
                 }
             }
         }
-        if (DEBUG) {
-            System.out.println("merge target for " + methodName + ":" + target + " pc is " + atTarget);
-        }
+
     }
 
     private String methodName;
@@ -3052,6 +3059,7 @@ public class OpcodeStack implements Constants2 {
         encountedTop = false;
         backwardsBranch = false;
         clearJumpInfoChangedByBackwardsBranch();
+        clearJumpInfoChangedByNewTarget();
 
         setReachOnlyByBranch(false);
         seenTransferOfControl = false;
@@ -3489,31 +3497,29 @@ public class OpcodeStack implements Constants2 {
     private void pushByLocalStore(int register) {
         Item it = new Item(pop());
         if (it.getRegisterNumber() != register) {
-            for (Item i : lvValues) {
-                if (i != null) {
-                    if (i.registerNumber == register) {
-                        i.registerNumber = -1;
-                    }
-                    if (i.fieldLoadedFromRegister == register) {
-                        i.fieldLoadedFromRegister = -1;
-                    }
-                }
-            }
-            for (Item i : stack) {
-                if (i != null) {
-                    if (i.registerNumber == register) {
-                        i.registerNumber = -1;
-                    }
-                    if (i.fieldLoadedFromRegister == register) {
-                        i.fieldLoadedFromRegister = -1;
-                    }
-                }
-            }
+            clearRegisterLoad(lvValues, register);
+            clearRegisterLoad(stack, register);
         }
         if (it.registerNumber == -1) {
             it.registerNumber = register;
         }
         setLVValue(register, it);
+    }
+
+    private static void clearRegisterLoad(List<Item> list, int register) {
+        for (int pos=0; pos<list.size(); pos++) {
+            Item i = list.get(pos);
+            if(i != null && (i.registerNumber == register || i.fieldLoadedFromRegister == register)) {
+                i = new Item(i);
+                if (i.registerNumber == register) {
+                    i.registerNumber = -1;
+                }
+                if (i.fieldLoadedFromRegister == register) {
+                    i.fieldLoadedFromRegister = -1;
+                }
+                list.set(pos, i);
+            }
+        }
     }
 
     private void pushByLocalLoad(String signature, int register) {
@@ -3603,5 +3609,20 @@ public class OpcodeStack implements Constants2 {
 
     void setJumpInfoChangedByBackwardsBranch(int from, int to) {
         this.jumpInfoChangedByBackwardsBranch = true;
+    }
+
+    /**
+     * @return Returns the jumpInfoChangedByNewTarget.
+     */
+    protected boolean isJumpInfoChangedByNewTarget() {
+        return jumpInfoChangedByNewTarget;
+    }
+
+    void clearJumpInfoChangedByNewTarget() {
+        this.jumpInfoChangedByNewTarget = jumpInfoChangedByNewTarget;
+    }
+
+    protected void setJumpInfoChangedByNewTarget() {
+        this.jumpInfoChangedByNewTarget = true;
     }
 }

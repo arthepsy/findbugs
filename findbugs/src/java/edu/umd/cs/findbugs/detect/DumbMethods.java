@@ -207,7 +207,16 @@ public class DumbMethods extends OpcodeStackDetector {
         }
     }
 
+    static int saturatingIncrement(int value) {
+        if (value == Integer.MAX_VALUE) {
+            return Integer.MAX_VALUE;
+        }
+        return value+1;
+    }
+
     private class RangeCheckSubDetector extends SubDetector {
+
+
 
         private void checkRange(Item item, Object minValue, Object maxValue, String pattern) {
             if(!(item.getConstant() instanceof Number)) {
@@ -220,24 +229,45 @@ public class DumbMethods extends OpcodeStackDetector {
                 intMin = ((Number)minValue).intValue();
             }
             if(maxValue instanceof Number) {
-                intMax = ((Number)maxValue).intValue()-1;
+                intMax = ((Number)maxValue).intValue();
             } else if(maxValue instanceof String) {
                 intMax = ((String)maxValue).length()-1;
+            } else if (maxValue instanceof OpcodeStack.Item){
+                OpcodeStack.Item maxItem = (OpcodeStack.Item ) maxValue;
+                if (maxItem.getSignature().charAt(0) == '[' && maxItem.getConstant() instanceof Integer) {
+                    intMax = ((Integer)maxItem.getConstant())-1;
+
+                }
             }
+
             if(value < intMin || value > intMax) {
-                BugInstance bug = new BugInstance(pattern, HIGH_PRIORITY).addClassAndMethod(DumbMethods.this).addSourceLine(DumbMethods.this)
-                        .addInt(value)
-                        .addString(value < intMin ? value + " < " + intMin : value + " >= " + (intMax + 1))
-                        .describe(StringAnnotation.ERROR_MSG_ROLE);
+                BugInstance bug = new BugInstance(pattern, NORMAL_PRIORITY ).addClassAndMethod(DumbMethods.this).addSourceLine(DumbMethods.this)
+                        .addInt(value).describe(IntAnnotation.INT_VALUE);
+
+                if (intMin <= intMax) {
+                    if (value < intMin) {
+                        bug.addInt(intMin).describe(IntAnnotation.INT_MIN_VALUE);
+                    }
+                    if (value > intMax) {
+                        bug.addInt(intMax) .describe(IntAnnotation.INT_MAX_VALUE);
+                    }
+                }
+
+
                 if (isMethodCall()) {
                     bug.addCalledMethod(DumbMethods.this);
                 }
+
+
+
                 accumulator.accumulateBug(bug, DumbMethods.this);
             }
         }
 
+
         @Override
         public void sawOpcode(int seen) {
+            // System.out.printf("%4d %s%n", getPC(), OPCODE_NAMES[seen]);
             switch(seen) {
             case IALOAD:
             case AALOAD:
@@ -247,7 +277,7 @@ public class DumbMethods extends OpcodeStackDetector {
             case LALOAD:
             case DALOAD:
             case FALOAD: {
-                checkRange(stack.getStackItem(0), 0, stack.getStackItem(1).getConstant(), "RANGE_ARRAY_INDEX");
+                checkRange(stack.getStackItem(0), 0, stack.getStackItem(1), "RANGE_ARRAY_INDEX");
                 break;
             }
             case IASTORE:
@@ -258,30 +288,42 @@ public class DumbMethods extends OpcodeStackDetector {
             case LASTORE:
             case DASTORE:
             case FASTORE: {
-                checkRange(stack.getStackItem(1), 0, stack.getStackItem(2).getConstant(), "RANGE_ARRAY_INDEX");
+
+                checkRange(stack.getStackItem(1), 0,  stack.getStackItem(2), "RANGE_ARRAY_INDEX");
                 break;
             }
             case INVOKESTATIC: {
                 MethodDescriptor m = getMethodDescriptorOperand();
                 if(m.getSlashedClassName().equals("java/lang/System") && m.getName().equals("arraycopy")) {
-                    checkRange(stack.getStackItem(3), 0, stack.getStackItem(4).getConstant(), "RANGE_ARRAY_OFFSET");
-                    checkRange(stack.getStackItem(1), 0, stack.getStackItem(2).getConstant(), "RANGE_ARRAY_OFFSET");
-                    if(stack.getStackItem(0).getConstant() instanceof Number) {
+                    // void arraycopy(Object src, int srcPos, Object dest, int destPos, int length)
+                    Item length = stack.getStackItem(0);
+                    Object constantLength = length.getConstant();
+                    //                    if (constantLength instanceof Number && constantLength.equals(0)) {
+                    //                        break;
+                    //                    }
+                    Item srcPos = stack.getStackItem(3);
+                    Item src = stack.getStackItem(4);
+                    checkRange(srcPos, 0, src, "RANGE_ARRAY_OFFSET");
+                    Item dest =  stack.getStackItem(2);
+                    Item destPos = stack.getStackItem(1);
+                    checkRange(destPos, 0, dest, "RANGE_ARRAY_OFFSET");
+
+                    if(constantLength instanceof Number) {
                         int length1 = Integer.MAX_VALUE;
-                        if(stack.getStackItem(4).getConstant() instanceof Integer) {
-                            length1 = (int) stack.getStackItem(4).getConstant();
+                        if(src.getConstant() instanceof Integer) {
+                            length1 = (int) src.getConstant();
                         }
-                        if(stack.getStackItem(3).getConstant() instanceof Integer) {
-                            length1 -= (int) stack.getStackItem(3).getConstant();
+                        if(srcPos.getConstant() instanceof Integer) {
+                            length1 -= (int) srcPos.getConstant();
                         }
                         int length2 = Integer.MAX_VALUE;
-                        if(stack.getStackItem(2).getConstant() instanceof Integer) {
+                        if(dest.getConstant() instanceof Integer) {
                             length2 = (int) stack.getStackItem(2).getConstant();
                         }
-                        if(stack.getStackItem(1).getConstant() instanceof Integer) {
+                        if(destPos.getConstant() instanceof Integer) {
                             length2 -= (int) stack.getStackItem(1).getConstant();
                         }
-                        checkRange(stack.getStackItem(0), 0, Math.min(length1, length2)+1, "RANGE_ARRAY_LENGTH");
+                        checkRange(length, 0, Math.min(length1, length2), "RANGE_ARRAY_LENGTH");
                     }
                 }
                 break;
@@ -297,11 +339,13 @@ public class DumbMethods extends OpcodeStackDetector {
                         int nArgs = getNumberArguments(m.getSignature());
                         Item thisArg = stack.getStackItem(nArgs);
                         Item firstArg = stack.getStackItem(nArgs-1);
-                        int maxLength = thisArg.getConstant() instanceof String ? ((String)thisArg.getConstant()).length() : Integer.MAX_VALUE;
-                        checkRange(firstArg, 0, maxLength+1, "RANGE_STRING_INDEX");
+                        Object thisConstantValue = thisArg.getConstant();
+                        int maxLength = thisConstantValue instanceof String ? ((String)thisConstantValue).length() : Integer.MAX_VALUE;
+                        checkRange(firstArg, 0,maxLength, "RANGE_STRING_INDEX");
                         if(nArgs == 2) {
                             Item secondArg = stack.getStackItem(0);
-                            checkRange(secondArg, firstArg.getConstant() == null ? 0 : firstArg.getConstant(), maxLength+1,
+                            checkRange(secondArg, firstArg.getConstant() == null ? 0 : firstArg.getConstant(),
+                                    maxLength,
                                     "RANGE_STRING_INDEX");
                         }
                     }
@@ -317,10 +361,10 @@ public class DumbMethods extends OpcodeStackDetector {
                         length = (int) arrayArg.getConstant();
                     }
                     if(offsetArg.getConstant() instanceof Integer) {
-                        checkRange(offsetArg, 0, length+1, "RANGE_ARRAY_OFFSET");
+                        checkRange(offsetArg, 0, saturatingIncrement(length), "RANGE_ARRAY_OFFSET");
                         length -= (int) offsetArg.getConstant();
                     }
-                    checkRange(lengthArg, 0, length+1, "RANGE_ARRAY_LENGTH");
+                    checkRange(lengthArg, 0, saturatingIncrement(length), "RANGE_ARRAY_LENGTH");
                 }
                 break;
             }
@@ -973,14 +1017,14 @@ public class DumbMethods extends OpcodeStackDetector {
                             }
 
                             accumulator.accumulateBug(new BugInstance(this, "INT_BAD_COMPARISON_WITH_SIGNED_BYTE", priority)
-                            .addClassAndMethod(this).addInt(v1).describe(IntAnnotation.INT_VALUE), this);
+                            .addClassAndMethod(this).addInt(v1).describe(IntAnnotation.INT_VALUE).addValueSource(item0, this), this);
 
                         }
                     } else if (item0.getSpecialKind() == OpcodeStack.Item.NON_NEGATIVE && constant1 instanceof Number) {
                         int v1 = ((Number) constant1).intValue();
                         if (v1 < 0) {
                             accumulator.accumulateBug(new BugInstance(this, "INT_BAD_COMPARISON_WITH_NONNEGATIVE_VALUE",
-                                    HIGH_PRIORITY).addClassAndMethod(this).addInt(v1).describe(IntAnnotation.INT_VALUE), this);
+                                    HIGH_PRIORITY).addClassAndMethod(this).addInt(v1).describe(IntAnnotation.INT_VALUE).addValueSource(item0, this), this);
                         }
 
                     }
@@ -993,36 +1037,48 @@ public class DumbMethods extends OpcodeStackDetector {
             case IFLT:
                 if(stack.getStackDepth() > 0 && stack.getStackItem(0).getSpecialKind() == OpcodeStack.Item.NON_NEGATIVE) {
                     OpcodeStack.Item top = stack.getStackItem(0);
-                    if (top.getSignature().equals("C") && top.getRegisterNumber() != -1 && getMaxPC() > getNextPC() + 2) {
-                        //                        for(int i = -2; i <= 0; i++) {
-                        //                            int o = getPrevOpcode(-i);
-                        //                            System.out.printf("%2d %3d  %2x %s%n",  i, o, o, OPCODE_NAMES[o]);
-                        //                        }
-                        //                        for(int i = 0; i < 5; i++) {
-                        //                            int o = getNextCodeByte(i);
-                        //                            System.out.printf("%2d %3d %2x %s%n",  i, o, o, OPCODE_NAMES[o]);
-                        //
-                        //                        }
-                        int jump = IF_ICMPGE;
+                    if (top.getRegisterNumber() != -1 && getMaxPC() > getNextPC() + 6) {
+                        if (false) {
+                            for(int i = -2; i <= 0; i++) {
+                                int o = getPrevOpcode(-i);
+                                System.out.printf("%2d %3d  %2x %s%n",  i, o, o, OPCODE_NAMES[o]);
+                            }
+                            for(int i = 0; i < 7; i++) {
+                                int o = getNextCodeByte(i);
+                                System.out.printf("%2d %3d %2x %s%n",  i, o, o, OPCODE_NAMES[o]);
+
+                            }
+                        }
+                        int jump1, jump2;
                         if (seen == IFGE) {
-                            jump = IF_ICMPLT;
+                            jump1 = IF_ICMPLT;
+                            jump2 = IF_ICMPLE;
+                        } else {
+                            jump1 = IF_ICMPGE;
+                            jump2 = IF_ICMPGT;
                         }
                         int nextCodeByte0 = getNextCodeByte(0);
-                        int nextCodeByte1 = getNextCodeByte(1);
-                        int nextCodeByte2 = getNextCodeByte(2);
-                        int nextCodeByte3 = getNextCodeByte(3);
-                        int nextCodeByte4 = getNextCodeByte(4);
+                        int loadConstant = 1;
+                        if (nextCodeByte0 == ILOAD) {
+                            loadConstant = 2;
+                        }
+                        int nextCodeByte1 = getNextCodeByte(loadConstant);
+                        int nextCodeByte2 = getNextCodeByte(loadConstant+1);
+                        int nextJumpOffset = loadConstant+2;
+                        if (nextCodeByte1 == SIPUSH) {
+                            nextJumpOffset++;
+                        }
+                        int nextCodeByteJump = getNextCodeByte(nextJumpOffset);
+
                         if (nextCodeByte0 == getPrevOpcode(1)
-                                && (nextCodeByte1 == BIPUSH && nextCodeByte2 == 128
-                                && nextCodeByte3 == jump
-                                || nextCodeByte1 == SIPUSH && nextCodeByte2 == 0 && nextCodeByte3 == 128
-                                && nextCodeByte4 == jump)
-                                ) {
+                                && (nextCodeByte1 == BIPUSH || nextCodeByte1 == SIPUSH)
+                                && (IF_ICMPLT <= nextCodeByteJump && nextCodeByteJump <= IF_ICMPLE))
+                        {
                             break;
                         }
                     }
                     accumulator.accumulateBug(new BugInstance(this, "INT_BAD_COMPARISON_WITH_NONNEGATIVE_VALUE",
-                            NORMAL_PRIORITY).addClassAndMethod(this).addInt(0).describe(IntAnnotation.INT_VALUE), this);
+                            NORMAL_PRIORITY).addClassAndMethod(this).addInt(0).describe(IntAnnotation.INT_VALUE).addValueSource(top, this), this);
                 }
                 break;
             case IAND:
