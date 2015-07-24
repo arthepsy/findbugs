@@ -2045,7 +2045,8 @@ another package.</p>
     <Details>
        <![CDATA[
        <p>
-    The usage of Optional return type always mean that explicit null returns were not desired by design.
+    The usage of Optional return type (java.util.Optional or com.google.common.base.Optiona) 
+    always mean that explicit null returns were not desired by design.
     Returning a null value in such case is a contract violation and will most likely break clients code.
        </p>
        ]]>
@@ -4894,8 +4895,8 @@ Common false-positive cases include:</p>
     <LongDescription>Useless condition: it's known that {2} at this point</LongDescription>
     <Details>
 <![CDATA[
-<p>This condition always produces the same result as the value of the involved variable was narrowed before. 
-Probably something else was meant or condition can be removed.</p>
+<p>This condition always produces the same result as the value of the involved variable that was narrowed before.
+Probably something else was meant or the condition can be removed.</p>
 ]]>
     </Details>
   </BugPattern>
@@ -4905,7 +4906,7 @@ Probably something else was meant or condition can be removed.</p>
     <Details>
 <![CDATA[
 <p>This condition always produces the same result due to the type range of the involved variable. 
-Probably something else was meant or condition can be removed.</p>
+Probably something else was meant or the condition can be removed.</p>
 ]]>
     </Details>
   </BugPattern>
@@ -7193,8 +7194,8 @@ For example,
     <Details>
 <![CDATA[
 <p>
-This format string include a newline character (\n). In format strings, it is generally
- preferable better to use %n, which will produce the platform-specific line separator.
+This format string includes a newline character (\n). In format strings, it is generally
+ preferable to use %n, which will produce the platform-specific line separator.
 </p>
 ]]>
      </Details>
@@ -7205,7 +7206,7 @@ This format string include a newline character (\n). In format strings, it is ge
     <Details>
 <![CDATA[
 <p>
-One of the arguments is uncompatible with the corresponding format string specifier.
+One of the arguments is incompatible with the corresponding format string specifier.
 As a result, this will generate a runtime exception when executed.
 For example, <code>String.format("%d", "1")</code> will generate an exception, since
 the String "1" is incompatible with the format specifier %d.
